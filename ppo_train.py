@@ -38,6 +38,8 @@ class Config:
     seed: int = 1
     save_every: int = 50
     ckpt_path: str = "ppo_ckpt.pt"
+    torch_compile: bool = False
+    compile_mode: str = "default"
 
 
 def parse_args() -> Config:
@@ -61,6 +63,8 @@ def parse_args() -> Config:
     parser.add_argument("--seed", type=int, default=Config.seed)
     parser.add_argument("--save-every", type=int, default=Config.save_every)
     parser.add_argument("--ckpt-path", type=str, default=Config.ckpt_path)
+    parser.add_argument("--torch-compile", action="store_true", default=Config.torch_compile)
+    parser.add_argument("--compile-mode", type=str, default=Config.compile_mode)
     args = parser.parse_args()
     return Config(
         total_steps=args.total_steps,
@@ -82,6 +86,8 @@ def parse_args() -> Config:
         seed=args.seed,
         save_every=args.save_every,
         ckpt_path=args.ckpt_path,
+        torch_compile=args.torch_compile,
+        compile_mode=args.compile_mode,
     )
 
 
@@ -230,6 +236,17 @@ def compute_gae(
     return advantages, returns
 
 
+def maybe_compile(fn, enabled: bool, mode: str, rank: int, name: str):
+    if not enabled or not hasattr(torch, "compile"):
+        return fn
+    try:
+        return torch.compile(fn, mode=mode)
+    except Exception as exc:
+        if rank == 0:
+            print(f"compile disabled for {name}: {exc}")
+        return fn
+
+
 def main():
     cfg = parse_args()
     distributed, rank, world_size, device = setup_distributed()
@@ -243,6 +260,7 @@ def main():
         raise ValueError("num_envs must be divisible by world_size")
 
     model = ActorCritic().to(device)
+    model = maybe_compile(model, cfg.torch_compile, cfg.compile_mode, rank, "ActorCritic")
     if distributed:
         model = DDP(model, device_ids=[device.index] if device.type == "cuda" else None)
 
@@ -264,6 +282,7 @@ def main():
     val_buf = torch.empty(cfg.horizon, local_envs, device=device)
 
     model_rollout = model.module if isinstance(model, DDP) else model
+    phys_step = maybe_compile(phys_upd, cfg.torch_compile, cfg.compile_mode, rank, "phys_upd")
 
     for update in range(1, num_updates + 1):
         for t in range(cfg.horizon):
@@ -271,7 +290,7 @@ def main():
             with torch.no_grad():
                 action, pre_tanh, logp, value = model_rollout.sample_action(state, cfg.max_torque)
 
-            next_state = phys_upd(state, action.squeeze(-1))
+            next_state = phys_step(state, action.squeeze(-1))
             reward = compute_reward(state, action, next_state)
 
             done = ~torch.isfinite(next_state).all(dim=-1)
