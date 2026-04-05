@@ -1,5 +1,6 @@
 import argparse
 import os
+import time
 from dataclasses import dataclass
 
 import torch
@@ -19,7 +20,7 @@ _REWARD_WEIGHT_CACHE = {}
 
 @dataclass
 class Config:
-    total_steps: int = 10000
+    total_steps: int = 100
     num_envs: int = 2048
     horizon: int = 512
     update_epochs: int = 4
@@ -291,7 +292,10 @@ def main():
     model_rollout = model.module if isinstance(model, DDP) else model
     phys_step = maybe_compile(phys_upd, cfg.torch_compile, cfg.compile_mode, rank, "phys_upd")
 
+    train_start_time = time.perf_counter()
+
     for update in range(1, num_updates + 1):
+        update_start_time = time.perf_counter()
         for t in range(cfg.horizon):
             obs_buf[t] = state
             with torch.no_grad():
@@ -395,9 +399,13 @@ def main():
 
         if rank == 0:
             global_step = update * steps_per_update
+            update_time_s = time.perf_counter() - update_start_time
+            total_time_s = time.perf_counter() - train_start_time
+            sps = steps_per_update / max(update_time_s, 1e-8)
             print(
                 f"update={update}/{num_updates} global_step={global_step} "
-                f"mean_rew={mean_rew.item():.4f} kl={mean_kl.item():.6f} clipfrac={mean_clipfrac.item():.4f}"
+                f"mean_rew={mean_rew.item():.4f} kl={mean_kl.item():.6f} clipfrac={mean_clipfrac.item():.4f} "
+                f"update_time_s={update_time_s:.3f} total_time_s={total_time_s:.3f} sps={sps:.1f}"
             )
 
             if update % cfg.save_every == 0 or update == num_updates:

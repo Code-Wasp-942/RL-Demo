@@ -2,3 +2,4 @@ _*
 tmp*
 *.pyc
 test*
+*.log
