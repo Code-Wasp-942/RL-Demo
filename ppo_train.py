@@ -39,7 +39,7 @@ class Config:
     save_every: int = 50
     ckpt_path: str = "ppo_ckpt.pt"
     torch_compile: bool = False
-    compile_mode: str = "default"
+    compile_mode: str = "reduce-overhead"
 
 
 def parse_args() -> Config:
@@ -64,7 +64,14 @@ def parse_args() -> Config:
     parser.add_argument("--save-every", type=int, default=Config.save_every)
     parser.add_argument("--ckpt-path", type=str, default=Config.ckpt_path)
     parser.add_argument("--torch-compile", action="store_true", default=Config.torch_compile)
-    parser.add_argument("--compile-mode", type=str, default=Config.compile_mode)
+    parser.add_argument(
+        "--compile-mode",
+        type=str,
+        nargs="?",
+        const=Config.compile_mode,
+        default=Config.compile_mode,
+        choices=("default", "reduce-overhead", "max-autotune"),
+    )
     args = parser.parse_args()
     return Config(
         total_steps=args.total_steps,
