@@ -59,7 +59,9 @@ def main() -> None:
     nproc_per_node, train_args = parse_args()
     ckpt_path = extract_ckpt_path(train_args)
     cmd = build_train_command(nproc_per_node, train_args)
+    gpu_count = torch.cuda.device_count() if torch.cuda.is_available() else 0
 
+    print(f"gpu count: {gpu_count}")
     print(f"start training with nproc_per_node={nproc_per_node}")
     subprocess.run(cmd, check=True)
 
