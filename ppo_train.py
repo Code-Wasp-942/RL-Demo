@@ -270,7 +270,7 @@ def main():
     ep_step = torch.zeros(local_envs, device=device, dtype=torch.long)
 
     steps_per_update = cfg.horizon * cfg.num_envs
-    num_updates = cfg.total_steps // steps_per_update
+    num_updates = cfg.total_steps
     if num_updates < 1:
         raise ValueError("total_steps is too small for one PPO update")
 
