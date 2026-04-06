@@ -359,12 +359,17 @@ def main():
                 )
 
             next_state = phys_step(state, action.squeeze(-1))
-            reward = compute_reward(state, action, next_state)
 
             terminated = ~torch.isfinite(next_state).all(dim=-1)
             ep_step = ep_step + 1
             truncated = ep_step >= ep_limit
             done = terminated | truncated
+
+            reward = compute_reward(state, action, next_state)
+            pre_tanh = pre_tanh.masked_fill(terminated.unsqueeze(-1), 0.0)
+            logp = logp.masked_fill(terminated, 0.0)
+            value = value.masked_fill(terminated, 0.0)
+            reward = reward.masked_fill(terminated, 0.0)
 
             pre_tanh_buf[t] = pre_tanh
             logp_buf[t] = logp
@@ -386,7 +391,7 @@ def main():
             )
             done_mask = done.unsqueeze(-1)
             next_state = torch.where(done_mask, reset_state, next_state)
-            ep_step = torch.where(done, torch.zeros_like(ep_step), ep_step)
+            ep_step = ep_step.masked_fill(done, 0)
             ep_limit = torch.where(done, reset_ep_limit, ep_limit)
 
             state = next_state
