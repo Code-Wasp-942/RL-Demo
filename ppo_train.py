@@ -44,8 +44,12 @@ class Config:
 
 
 def parse_args() -> Config:
-    parser = argparse.ArgumentParser(description="PPO trainer for 4-link inverted pendulum")
-    parser.add_argument("--total-steps", type=int, default=Config.total_steps)
+    parser = argparse.ArgumentParser(
+        description="PPO trainer for 4-link inverted pendulum"
+    )
+    parser.add_argument(
+        "--total-steps", "--total_steps", type=int, default=Config.total_steps
+    )
     parser.add_argument("--num-envs", type=int, default=Config.num_envs)
     parser.add_argument("--horizon", type=int, default=Config.horizon)
     parser.add_argument("--update-epochs", type=int, default=Config.update_epochs)
@@ -59,12 +63,16 @@ def parse_args() -> Config:
     parser.add_argument("--lr", type=float, default=Config.lr)
     parser.add_argument("--max-torque", type=float, default=Config.max_torque)
     parser.add_argument("--max-ep-len", type=int, default=Config.max_ep_len)
-    parser.add_argument("--init-angle-scale", type=float, default=Config.init_angle_scale)
+    parser.add_argument(
+        "--init-angle-scale", type=float, default=Config.init_angle_scale
+    )
     parser.add_argument("--init-vel-scale", type=float, default=Config.init_vel_scale)
     parser.add_argument("--seed", type=int, default=Config.seed)
     parser.add_argument("--save-every", type=int, default=Config.save_every)
     parser.add_argument("--ckpt-path", type=str, default=Config.ckpt_path)
-    parser.add_argument("--torch-compile", action="store_true", default=Config.torch_compile)
+    parser.add_argument(
+        "--torch-compile", action="store_true", default=Config.torch_compile
+    )
     parser.add_argument(
         "--compile-mode",
         type=str,
@@ -132,7 +140,9 @@ def distributed_mean(value: torch.Tensor, distributed: bool) -> torch.Tensor:
     return out
 
 
-def reset_env(num_envs: int, device: torch.device, angle_scale: float, vel_scale: float) -> torch.Tensor:
+def reset_env(
+    num_envs: int, device: torch.device, angle_scale: float, vel_scale: float
+) -> torch.Tensor:
     q = angle_scale * torch.randn(num_envs, 4, device=device)
     dq = vel_scale * torch.randn(num_envs, 4, device=device)
     return torch.cat((q, dq), dim=-1)
@@ -152,12 +162,15 @@ def _reward_weight(device: torch.device, dtype: torch.dtype) -> torch.Tensor:
     return weight
 
 
-def compute_reward(state: torch.Tensor, action: torch.Tensor, next_state: torch.Tensor) -> torch.Tensor:
+def compute_reward(
+    state: torch.Tensor, action: torch.Tensor, next_state: torch.Tensor
+) -> torch.Tensor:
     _ = state, action
     q = next_state[..., :4]
     weight = _reward_weight(next_state.device, next_state.dtype)
     potential = torch.sum(weight * torch.cos(q), dim=-1)
     return potential
+
 
 class ActorCritic(nn.Module):
     def __init__(self):
@@ -201,7 +214,9 @@ class ActorCritic(nn.Module):
         value = self.value(obs)
         return action, pre_tanh, log_prob, value
 
-    def evaluate_pre_tanh(self, obs: torch.Tensor, pre_tanh: torch.Tensor, max_torque: float):
+    def evaluate_pre_tanh(
+        self, obs: torch.Tensor, pre_tanh: torch.Tensor, max_torque: float
+    ):
         distn = self.get_dist(obs)
         log_prob = squash_log_prob(distn, pre_tanh, max_torque)
         entropy = distn.entropy().sum(dim=-1)
@@ -209,7 +224,9 @@ class ActorCritic(nn.Module):
         return log_prob, entropy, value
 
 
-def squash_log_prob(distn: Normal, pre_tanh: torch.Tensor, max_torque: float) -> torch.Tensor:
+def squash_log_prob(
+    distn: Normal, pre_tanh: torch.Tensor, max_torque: float
+) -> torch.Tensor:
     action_unit = torch.tanh(pre_tanh)
     logp_u = distn.log_prob(pre_tanh).sum(dim=-1)
     log_det = torch.log(max_torque * (1.0 - action_unit.pow(2)) + EPS).sum(dim=-1)
@@ -268,7 +285,9 @@ def main():
         raise ValueError("num_envs must be divisible by world_size")
 
     model = ActorCritic().to(device)
-    model = maybe_compile(model, cfg.torch_compile, cfg.compile_mode, rank, "ActorCritic")
+    model = maybe_compile(
+        model, cfg.torch_compile, cfg.compile_mode, rank, "ActorCritic"
+    )
     if distributed:
         model = DDP(model, device_ids=[device.index] if device.type == "cuda" else None)
 
@@ -290,7 +309,9 @@ def main():
     val_buf = torch.empty(cfg.horizon, local_envs, device=device)
 
     model_rollout = model.module if isinstance(model, DDP) else model
-    phys_step = maybe_compile(phys_upd, cfg.torch_compile, cfg.compile_mode, rank, "phys_upd")
+    phys_step = maybe_compile(
+        phys_upd, cfg.torch_compile, cfg.compile_mode, rank, "phys_upd"
+    )
 
     train_start_time = time.perf_counter()
 
@@ -299,7 +320,9 @@ def main():
         for t in range(cfg.horizon):
             obs_buf[t] = state
             with torch.no_grad():
-                action, pre_tanh, logp, value = model_rollout.sample_action(state, cfg.max_torque)
+                action, pre_tanh, logp, value = model_rollout.sample_action(
+                    state, cfg.max_torque
+                )
 
             next_state = phys_step(state, action.squeeze(-1))
             reward = compute_reward(state, action, next_state)
@@ -315,7 +338,12 @@ def main():
             val_buf[t] = value
 
             if done.any():
-                reset_state = reset_env(int(done.sum().item()), device, cfg.init_angle_scale, cfg.init_vel_scale)
+                reset_state = reset_env(
+                    int(done.sum().item()),
+                    device,
+                    cfg.init_angle_scale,
+                    cfg.init_vel_scale,
+                )
                 next_state = next_state.clone()
                 next_state[done] = reset_state
                 ep_step = ep_step.clone()
@@ -366,11 +394,15 @@ def main():
 
                 mb_adv = b_adv[mb_idx]
                 pg_loss1 = -mb_adv * ratio
-                pg_loss2 = -mb_adv * torch.clamp(ratio, 1.0 - cfg.clip_coef, 1.0 + cfg.clip_coef)
+                pg_loss2 = -mb_adv * torch.clamp(
+                    ratio, 1.0 - cfg.clip_coef, 1.0 + cfg.clip_coef
+                )
                 pg_loss = torch.max(pg_loss1, pg_loss2).mean()
 
                 v_loss_unclipped = (new_value - b_ret[mb_idx]).pow(2)
-                v_clipped = b_val[mb_idx] + torch.clamp(new_value - b_val[mb_idx], -cfg.clip_coef, cfg.clip_coef)
+                v_clipped = b_val[mb_idx] + torch.clamp(
+                    new_value - b_val[mb_idx], -cfg.clip_coef, cfg.clip_coef
+                )
                 v_loss_clipped = (v_clipped - b_ret[mb_idx]).pow(2)
                 v_loss = 0.5 * torch.max(v_loss_unclipped, v_loss_clipped).mean()
 
@@ -390,8 +422,16 @@ def main():
 
         with torch.no_grad():
             mean_rew = rew_buf.mean()
-            mean_kl = torch.stack(approx_kls).mean() if approx_kls else torch.tensor(0.0, device=device)
-            mean_clipfrac = torch.stack(clipfracs).mean() if clipfracs else torch.tensor(0.0, device=device)
+            mean_kl = (
+                torch.stack(approx_kls).mean()
+                if approx_kls
+                else torch.tensor(0.0, device=device)
+            )
+            mean_clipfrac = (
+                torch.stack(clipfracs).mean()
+                if clipfracs
+                else torch.tensor(0.0, device=device)
+            )
 
             mean_rew = distributed_mean(mean_rew, distributed)
             mean_kl = distributed_mean(mean_kl, distributed)
