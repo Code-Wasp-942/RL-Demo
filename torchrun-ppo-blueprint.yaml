@@ -1,0 +1,52 @@
+title: Torchrun PPO Train + Custody
+description: 从 Blueprint 表单输入 n,m，运行 torchrun 训练并托管结果目录，返回 file secret
+code: |
+  from magnus import submit_job, JobType
+  from typing import Annotated
+
+  NProcPerNode = Annotated[int, {
+      "label": "nproc_per_node (n)",
+      "description": "torchrun 的 --nproc_per_node，通常等于要使用的 GPU 数",
+      "min": 1,
+  }]
+
+  TotalSteps = Annotated[int, {
+      "label": "total_steps (m)",
+      "description": "ppo_train.py 的总更新步数（支持 --total_steps / --total-steps）",
+      "min": 1,
+  }]
+
+  def blueprint(n: NProcPerNode, m: TotalSteps):
+      entry_command = f"""
+  set -euo pipefail
+  cd "$MAGNUS_HOME/workspace/repository"
+
+  OUTDIR="runs/torchrun_n{n}_m{m}_$(date +%Y%m%d_%H%M%S)"
+  mkdir -p "$OUTDIR"
+
+  torchrun --standalone --nproc_per_node={n} ppo_train.py --total_steps {m} --ckpt-path "$OUTDIR/ppo_ckpt.pt"
+
+  export OUTDIR
+  python - <<'PY'
+  import os
+  import magnus
+
+  outdir = os.environ["OUTDIR"]
+  secret = magnus.custody_file(outdir)
+  line = f"file secret: {{secret}}"
+
+  print(line, flush=True)
+  with open(os.environ["MAGNUS_RESULT"], "w", encoding="utf-8") as f:
+      f.write(line + "\\n")
+  PY
+  """
+
+      submit_job(
+          task_name=f"[Blueprint] torchrun ppo n={n} m={m}",
+          description=f"Run torchrun PPO training with nproc_per_node={n}, total_steps={m}, then custody output folder.",
+          namespace="Rise-AGI",
+          repo_name="RL-demo",
+          entry_command=entry_command,
+          job_type=JobType.A2,
+          gpu_count=n,
+      )
