@@ -34,6 +34,7 @@ class Config:
     lr: float = 3e-4
     max_torque: float = 50.0
     max_ep_len: int = 1024
+    max_ep_len_jitter: float = 0.1
     init_angle_scale: float = 0.05
     init_vel_scale: float = 0.05
     seed: int = 1
@@ -63,6 +64,12 @@ def parse_args() -> Config:
     parser.add_argument("--lr", type=float, default=Config.lr)
     parser.add_argument("--max-torque", type=float, default=Config.max_torque)
     parser.add_argument("--max-ep-len", type=int, default=Config.max_ep_len)
+    parser.add_argument(
+        "--max-ep-len-jitter",
+        type=float,
+        default=Config.max_ep_len_jitter,
+        help="Episode length jitter ratio in [0, 1).",
+    )
     parser.add_argument(
         "--init-angle-scale", type=float, default=Config.init_angle_scale
     )
@@ -97,6 +104,7 @@ def parse_args() -> Config:
         lr=args.lr,
         max_torque=args.max_torque,
         max_ep_len=args.max_ep_len,
+        max_ep_len_jitter=args.max_ep_len_jitter,
         init_angle_scale=args.init_angle_scale,
         init_vel_scale=args.init_vel_scale,
         seed=args.seed,
@@ -146,6 +154,26 @@ def reset_env(
     q = angle_scale * torch.randn(num_envs, 4, device=device)
     dq = vel_scale * torch.randn(num_envs, 4, device=device)
     return torch.cat((q, dq), dim=-1)
+
+
+def sample_episode_limits(
+    num_envs: int,
+    base_ep_len: int,
+    jitter_ratio: float,
+    device: torch.device,
+) -> torch.Tensor:
+    if base_ep_len < 1:
+        raise ValueError("max_ep_len must be >= 1")
+    if not 0.0 <= jitter_ratio < 1.0:
+        raise ValueError("max_ep_len_jitter must be in [0, 1)")
+
+    jitter_steps = int(base_ep_len * jitter_ratio)
+    if jitter_steps == 0:
+        return torch.full((num_envs,), base_ep_len, device=device, dtype=torch.long)
+
+    low = max(1, base_ep_len - jitter_steps)
+    high = base_ep_len + jitter_steps
+    return torch.randint(low, high + 1, (num_envs,), device=device, dtype=torch.long)
 
 
 def _reward_weight(device: torch.device, dtype: torch.dtype) -> torch.Tensor:
@@ -295,6 +323,12 @@ def main():
 
     state = reset_env(local_envs, device, cfg.init_angle_scale, cfg.init_vel_scale)
     ep_step = torch.zeros(local_envs, device=device, dtype=torch.long)
+    ep_limit = sample_episode_limits(
+        local_envs,
+        cfg.max_ep_len,
+        cfg.max_ep_len_jitter,
+        device,
+    )
 
     steps_per_update = cfg.horizon * cfg.num_envs
     num_updates = cfg.total_steps
@@ -329,7 +363,7 @@ def main():
 
             terminated = ~torch.isfinite(next_state).all(dim=-1)
             ep_step = ep_step + 1
-            truncated = ep_step >= cfg.max_ep_len
+            truncated = ep_step >= ep_limit
             done = terminated | truncated
 
             pre_tanh_buf[t] = pre_tanh
@@ -344,9 +378,16 @@ def main():
                 cfg.init_angle_scale,
                 cfg.init_vel_scale,
             )
+            reset_ep_limit = sample_episode_limits(
+                local_envs,
+                cfg.max_ep_len,
+                cfg.max_ep_len_jitter,
+                device,
+            )
             done_mask = done.unsqueeze(-1)
             next_state = torch.where(done_mask, reset_state, next_state)
             ep_step = torch.where(done, torch.zeros_like(ep_step), ep_step)
+            ep_limit = torch.where(done, reset_ep_limit, ep_limit)
 
             state = next_state
 
