@@ -7,7 +7,7 @@ MASS = (1.0, 1.0, 1.0, 1.0)
 LENGTH = (1.0, 1.0, 1.0, 1.0)
 GRAVITY = 9.81
 DT = 0.01
-DAMPING = 0.01
+DAMPING = 0
 
 
 _STATIC_CACHE = {}

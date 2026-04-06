@@ -32,7 +32,7 @@ class Config:
     vf_coef: float = 0.5
     max_grad_norm: float = 0.5
     lr: float = 3e-4
-    max_torque: float = 10.0
+    max_torque: float = 50.0
     max_ep_len: int = 1000
     init_angle_scale: float = 0.05
     init_vel_scale: float = 0.05
