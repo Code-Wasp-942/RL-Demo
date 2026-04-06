@@ -3,6 +3,8 @@
 set -euo pipefail
 cd "$MAGNUS_HOME/workspace/repository"
 
+pip install magnus-sdk --quiet
+
 OUTDIR="runs/torchrun_n{n}_m{m}_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$OUTDIR"
 
