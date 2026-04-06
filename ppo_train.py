@@ -33,7 +33,7 @@ class Config:
     max_grad_norm: float = 0.5
     lr: float = 3e-4
     max_torque: float = 50.0
-    max_ep_len: int = 1000
+    max_ep_len: int = 1024
     init_angle_scale: float = 0.05
     init_vel_scale: float = 0.05
     seed: int = 1
@@ -235,7 +235,7 @@ def squash_log_prob(
 
 def compute_gae(
     rewards: torch.Tensor,
-    dones: torch.Tensor,
+    terminated: torch.Tensor,
     values: torch.Tensor,
     next_value: torch.Tensor,
     gamma: float,
@@ -247,10 +247,10 @@ def compute_gae(
 
     for t in reversed(range(horizon)):
         if t == horizon - 1:
-            next_nonterminal = 1.0 - dones[t]
+            next_nonterminal = 1.0 - terminated[t]
             next_values = next_value
         else:
-            next_nonterminal = 1.0 - dones[t]
+            next_nonterminal = 1.0 - terminated[t]
             next_values = values[t + 1]
 
         delta = rewards[t] + gamma * next_values * next_nonterminal - values[t]
@@ -305,7 +305,7 @@ def main():
     pre_tanh_buf = torch.empty(cfg.horizon, local_envs, 1, device=device)
     logp_buf = torch.empty(cfg.horizon, local_envs, device=device)
     rew_buf = torch.empty(cfg.horizon, local_envs, device=device)
-    done_buf = torch.empty(cfg.horizon, local_envs, device=device)
+    terminated_buf = torch.empty(cfg.horizon, local_envs, device=device)
     val_buf = torch.empty(cfg.horizon, local_envs, device=device)
 
     model_rollout = model.module if isinstance(model, DDP) else model
@@ -327,14 +327,15 @@ def main():
             next_state = phys_step(state, action.squeeze(-1))
             reward = compute_reward(state, action, next_state)
 
-            done = ~torch.isfinite(next_state).all(dim=-1)
+            terminated = ~torch.isfinite(next_state).all(dim=-1)
             ep_step = ep_step + 1
-            done = done | (ep_step >= cfg.max_ep_len)
+            truncated = ep_step >= cfg.max_ep_len
+            done = terminated | truncated
 
             pre_tanh_buf[t] = pre_tanh
             logp_buf[t] = logp
             rew_buf[t] = reward
-            done_buf[t] = done.to(dtype=reward.dtype)
+            terminated_buf[t] = terminated.to(dtype=reward.dtype)
             val_buf[t] = value
 
             if done.any():
@@ -356,7 +357,7 @@ def main():
 
         adv_buf, ret_buf = compute_gae(
             rew_buf,
-            done_buf,
+            terminated_buf,
             val_buf,
             next_value,
             cfg.gamma,

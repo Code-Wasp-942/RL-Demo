@@ -6,7 +6,7 @@ N_LINKS = 4
 MASS = (1.0, 1.0, 1.0, 1.0)
 LENGTH = (1.0, 1.0, 1.0, 1.0)
 GRAVITY = 9.81
-DT = 0.01
+DT = 0.025
 DAMPING = 0
 
 
