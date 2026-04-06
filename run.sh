@@ -1,3 +1,5 @@
+# 若 permission denied，则把脚本粘贴到 entry command 框内运行
+
 set -euo pipefail
 cd "$MAGNUS_HOME/workspace/repository"
 
