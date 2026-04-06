@@ -338,17 +338,15 @@ def main():
             terminated_buf[t] = terminated.to(dtype=reward.dtype)
             val_buf[t] = value
 
-            if done.any():
-                reset_state = reset_env(
-                    int(done.sum().item()),
-                    device,
-                    cfg.init_angle_scale,
-                    cfg.init_vel_scale,
-                )
-                next_state = next_state.clone()
-                next_state[done] = reset_state
-                ep_step = ep_step.clone()
-                ep_step[done] = 0
+            reset_state = reset_env(
+                local_envs,
+                device,
+                cfg.init_angle_scale,
+                cfg.init_vel_scale,
+            )
+            done_mask = done.unsqueeze(-1)
+            next_state = torch.where(done_mask, reset_state, next_state)
+            ep_step = torch.where(done, torch.zeros_like(ep_step), ep_step)
 
             state = next_state
 
